@@ -1,0 +1,4 @@
+Significance: patch
+Type: fix
+
+Return an error from the products REST API when a category or tag is sent without its ID, instead of removing the product's categories.

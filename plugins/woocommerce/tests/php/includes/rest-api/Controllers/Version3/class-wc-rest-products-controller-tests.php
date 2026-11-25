@@ -3334,6 +3334,86 @@ class WC_REST_Products_Controller_Tests extends WC_Unit_Test_Case {
 	}
 
 	/**
+	 * @testdox Updating a product with $field given as $items is refused and keeps the product's $taxonomy terms.
+	 *
+	 * @testWith ["categories", "product_cat", "set_category_ids", [{"slug": "food"}], "woocommerce_rest_invalid_product_category"]
+	 *           ["categories", "product_cat", "set_category_ids", [{"name": "Food"}], "woocommerce_rest_invalid_product_category"]
+	 *           ["tags", "product_tag", "set_tag_ids", [{"slug": "food"}], "woocommerce_rest_invalid_product_tag"]
+	 *
+	 * @param string  $field      Request field.
+	 * @param string  $taxonomy   Taxonomy of the field.
+	 * @param string  $setter     WC_Product setter for the field.
+	 * @param array[] $items      Terms sent without an ID.
+	 * @param string  $error_code Expected error code.
+	 */
+	public function test_update_product_terms_without_id_keeps_existing_terms( string $field, string $taxonomy, string $setter, array $items, string $error_code ): void {
+		$product = WC_Helper_Product::create_simple_product();
+		$term_id = (int) wp_insert_term( 'Food', $taxonomy )['term_id'];
+		$product->{$setter}( array( $term_id ) );
+		$product->save();
+
+		$request = new WP_REST_Request( 'PUT', '/wc/v3/products/' . $product->get_id() );
+		$request->set_body_params( array( $field => $items ) );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 400, $response->get_status(), 'A term without an ID should be refused, not reported as saved.' );
+		$this->assertSame( $error_code, $response->get_data()['code'] ?? null );
+		$this->assertSame( array( $term_id ), wp_get_post_terms( $product->get_id(), $taxonomy, array( 'fields' => 'ids' ) ), 'The product should keep its existing terms.' );
+	}
+
+	/**
+	 * @testdox A batch update accepts category IDs sent as strings and refuses a product whose categories include one without an ID.
+	 */
+	public function test_batch_update_product_categories_requires_ids(): void {
+		$accepted        = WC_Helper_Product::create_simple_product();
+		$refused         = WC_Helper_Product::create_simple_product();
+		$kept_category   = (int) wp_insert_term( 'Food', 'product_cat' )['term_id'];
+		$picked_category = (int) wp_insert_term( 'Supplies', 'product_cat' )['term_id'];
+		$refused->set_category_ids( array( $kept_category ) );
+		$refused->save();
+
+		$request = new WP_REST_Request( 'POST', '/wc/v3/products/batch' );
+		$request->set_body_params(
+			array(
+				'update' => array(
+					array(
+						'id'         => $accepted->get_id(),
+						'categories' => array( array( 'id' => (string) $picked_category ) ),
+					),
+					array(
+						'id'         => $refused->get_id(),
+						'categories' => array( array( 'id' => $picked_category ), array( 'slug' => 'food' ) ),
+					),
+				),
+			)
+		);
+		$data = $this->server->dispatch( $request )->get_data();
+
+		$this->assertArrayNotHasKey( 'error', $data['update'][0], 'Batch items are not sanitized against the schema, so an ID sent as a string must still be accepted.' );
+		$this->assertSame( array( $picked_category ), wp_get_post_terms( $accepted->get_id(), 'product_cat', array( 'fields' => 'ids' ) ) );
+
+		$this->assertSame( 'woocommerce_rest_invalid_product_category', $data['update'][1]['error']['code'] ?? null, 'Batch items skip schema validation, so the save itself must refuse a category without an ID.' );
+		$this->assertSame( 400, $data['update'][1]['error']['data']['status'] ?? null );
+		$this->assertSame( array( $kept_category ), wp_get_post_terms( $refused->get_id(), 'product_cat', array( 'fields' => 'ids' ) ), 'The refused product should keep its category and not get the other one.' );
+	}
+
+	/**
+	 * @testdox Updating a product with an empty list of tags still removes all of its tags.
+	 */
+	public function test_update_product_with_empty_tags_removes_tags(): void {
+		$product = WC_Helper_Product::create_simple_product();
+		$product->set_tag_ids( array( (int) wp_insert_term( 'Food', 'product_tag' )['term_id'] ) );
+		$product->save();
+
+		$request = new WP_REST_Request( 'PUT', '/wc/v3/products/' . $product->get_id() );
+		$request->set_body_params( array( 'tags' => array() ) );
+		$response = $this->server->dispatch( $request );
+
+		$this->assertSame( 200, $response->get_status() );
+		$this->assertSame( array(), wp_get_post_terms( $product->get_id(), 'product_tag', array( 'fields' => 'ids' ) ), 'An empty list is how a client clears the terms.' );
+	}
+
+	/**
 	 * Assert a product response and its stored post keep the given name and descriptions.
 	 *
 	 * @param array $data   Product response data.
