@@ -1626,10 +1626,31 @@ class WC_REST_Products_V2_Controller extends WC_REST_CRUD_Controller {
 	 * @param array      $terms    Terms data.
 	 * @param string     $taxonomy Taxonomy name.
 	 *
+	 * @throws WC_REST_Exception When a category or tag is given without a valid ID.
 	 * @return WC_Product
 	 */
 	protected function save_taxonomy_terms( $product, $terms, $taxonomy = 'cat' ) {
-		$term_ids = wp_list_pluck( $terms, 'id' );
+		if ( 'cat' !== $taxonomy && 'tag' !== $taxonomy ) {
+			return $product;
+		}
+
+		$term_ids = array();
+
+		foreach ( $terms as $term ) {
+			$term_id = ( (array) $term )['id'] ?? null;
+
+			// A term without an ID, for example one sent by slug, would be dropped,
+			// and a list of only such terms would remove all of the product's terms.
+			if ( ! rest_is_integer( $term_id ) ) {
+				if ( 'tag' === $taxonomy ) {
+					throw new WC_REST_Exception( 'woocommerce_rest_invalid_product_tag', esc_html__( 'Each tag must include a valid ID.', 'woocommerce' ), 400 );
+				}
+
+				throw new WC_REST_Exception( 'woocommerce_rest_invalid_product_category', esc_html__( 'Each category must include a valid ID.', 'woocommerce' ), 400 );
+			}
+
+			$term_ids[] = $term_id;
+		}
 
 		if ( 'cat' === $taxonomy ) {
 			$product->set_category_ids( $term_ids );
