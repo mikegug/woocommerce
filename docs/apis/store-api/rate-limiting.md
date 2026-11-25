@@ -29,7 +29,11 @@ A default maximum of 25 requests can be made within a 10-second time frame. Thes
 
 ## Methods restricted by Rate Limiting
 
-Only `POST` requests are rate limited. Requests using the `X-HTTP-Method-Override` header (such as `PUT`, `PATCH` requests sent via `wp.apiFetch`) are excluded from rate limiting.
+When rate limiting is enabled with the [options filter](#rate-limiting-options-filter), every Store API request counts towards the limit, whatever its HTTP method. This includes `GET` requests, such as reading the cart.
+
+[Checkout rate limiting](#checkout-rate-limiting) turns on the same limiter, but only for `POST` requests to the checkout endpoint. A `POST` request whose `X-HTTP-Method-Override` header names another method (such as the `PUT` and `PATCH` requests sent by `wp.apiFetch`) does not turn it on, although it still counts towards a limit enabled with the options filter.
+
+Requests from logged-in users who can `edit_posts` are not rate limited.
 
 ## Rate Limiting options filter
 
